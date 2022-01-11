@@ -1,0 +1,407 @@
+<html>
+
+<head>
+    <title>Snake Game</title>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        var canvas = document.getElementById('canvas');
+        var selectBtn = document.getElementById('algo');
+        var ctx = canvas.getContext('2d');
+
+
+        window.onload = function () {
+            setInterval(function () { game() }, 1000 / 21);
+        }
+
+        // INITIATING VARIABLES
+        canvas.width = 820;
+        canvas.height = 920;
+        var rownmbr = 16;
+        var colnmbr = 16;
+        var row = 10;
+        var col = 10;
+        var width = (canvas.width - 20) / rownmbr;
+        var height = (canvas.height - 120) / rownmbr;
+        var grid = [];
+        var done = false;
+        var p = 0; var path = [];
+
+        // FOR DRAWING RECTANGLES
+        function drawRect(x, y, width, height, color, insidecolor, fill) {
+            if (fill) {
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y, width, height);
+                ctx.lineWidth = 7;
+                ctx.strokeStyle = 'black';
+                ctx.strokeRect(x, y, width, height);
+            } else {
+                ctx.fillStyle = insidecolor;
+                ctx.fillRect(x, y, width, height);
+                ctx.lineWidth = 7;
+                ctx.strokeStyle = 'black';
+                ctx.strokeRect(x, y, width, height);
+            }
+        }
+
+        // SQUARE CLASS
+        class Square {
+            constructor(x, y, width, height, color, insidecolor, fill, i, j) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.color = color;
+                this.insidecolor = insidecolor;
+                this.fill = fill;
+                this.wall = false;
+                this.parent = null;
+                this.visited = false;
+                this.i = i;
+                this.j = j;
+                this.oldi = i;
+                this.oldj = j - 1;
+                this.g = 999999;
+                this.h = null;
+            }
+
+            clicked(x, y) {
+                if (x > this.x && x < (this.x + this.width) && y > this.y && y < (this.y + this.height)) {
+                    return true;
+                }
+                return false;
+            }
+
+            draw() {
+                drawRect(this.x, this.y, this.width, this.height, this.color, this.insidecolor, this.fill);
+            }
+
+        }
+
+        //  MAKING THE GRID
+        for (i = 0; i < colnmbr; i++) {
+            grid[i] = [];
+        }
+
+        for (i = 0; i < rownmbr; i++) {
+            col = 10;
+            for (j = 0; j < colnmbr; j++) {
+                grid[i][j] = new Square(col, row, width, height, 'black', 'black', false, i, j);
+                grid[i][j].draw();
+                col = col + width;
+            }
+            row = row + height;
+        }
+
+        // MAKING THE SNAKE BY USING THE SQUARE CLASS
+        var snake = [];
+        var tails = 3;
+        snake[0] = new Square(grid[5][5].x, grid[5][5].y, width, height, 'black', 'green', false, 5, 5);
+        snake[1] = new Square(grid[snake[0].oldi][snake[0].oldj].x, grid[snake[0].oldi][snake[0].oldj].y, width, height, 'black', 'lime', false, snake[0].oldi, snake[0].oldj);
+        snake[2] = new Square(grid[snake[1].oldi][snake[1].oldj].x, grid[snake[1].oldi][snake[1].oldj].y, width, height, 'black', 'lime', false, snake[1].oldi, snake[1].oldj);
+
+        // FUNCTION FOR MAKING AND PLACING THE FOOD RANDOMLY
+        var foodPlace;
+        var foodi; var foodj;
+        function placeFood() {
+            do {
+                foodPlace = true;
+                foodi = Math.round(Math.random() * (rownmbr - 2));
+                foodj = Math.round(Math.random() * (colnmbr - 2));
+                for (var t = 0; t < tails; t++) {
+                    if (snake[t].i == foodi && snake[t].j == foodj) {
+                        foodPlace = false;
+                    }
+                }
+                for (var i = 0; i < rownmbr; i++) {
+                    for (var j = 0; j < colnmbr; j++) {
+                        if (grid[i][j].insidecolor == 'grey' && grid[i][j].i == foodi && grid[i][j].j == foodj) {
+                            foodPlace = false;
+                        }
+                    }
+                }
+
+            } while (!foodPlace);
+        }
+        // GETTING THE COORDINATES FOR THE FOOD THEN MAKING THE FOOD AT THOSE COORDINATES
+        placeFood();
+        var food = new Square(grid[foodi][foodj].x, grid[foodi][foodj].y, width, height, 'black', 'red', false, foodi, foodj);
+
+        // BUTTONS TO PAUSE AND CLEAR THE WALLS
+        var pause = new Square(10, 815, width, height, 'black', 'white', false, null, null);
+        var clearwall = new Square(60, 815, width, height, 'black', 'cyan', false, null, null);
+
+        // PATH ALGORITHM STUFF
+
+        // RESETTING THE VARIABLES INSIDE EVERY SQUARE OBJECT
+        function reset() {
+            for (var i = 0; i < rownmbr; i++) {
+                for (var j = 0; j < colnmbr; j++) {
+                    if (grid[i][j].insidecolor != 'grey') {
+                        grid[i][j].insidecolor = 'black';
+                        grid[i][j].wall = false;
+                        grid[i][j].parent = null;
+                        grid[i][j].visited = false;
+                        grid[i][j].g = 999999;
+                        grid[i][j].draw();
+                    }
+                }
+            }
+        }
+
+        // SORTING THE QUEUE DEPENDING IF IT'S FOR DIJKSTRA OR A STAR
+        function sortqueue(queue) {
+            var x;
+            for (i = 0; i < queue.length; i++) {
+                for (j = i + 1; j < queue.length; j++) {
+                    if (queue[i].g + queue[i].h > queue[j].g + queue[j].h) {
+                        x = queue[i];
+                        queue[i] = queue[j];
+                        queue[j] = x;
+                    }
+                }
+            }
+        }
+
+        // PATHFINDING ALGORITHM
+        function pathfinding(start, end) {
+            reset();
+            start.g = 0;
+            var current = start;
+            var queue = [];
+            var ci, cj;
+            var noPath = false;
+            done = false;
+            while (!done) {
+                ci = current.i;
+                cj = current.j;
+                for (var i = -1; i <= 1; i++) {
+                    for (var j = -1; j <= 1; j++) {
+                        if (ci + i > -1 && ci + i < rownmbr && cj + j > -1 && cj + j < colnmbr && !(i == j)) {
+                            var temp = grid[ci + i][cj + j];
+                            for (var k = 1; k < tails; k++) {
+                                if (snake[k].i == temp.i && snake[k].j == temp.j) {
+                                    temp.wall = true;
+                                }
+                            }
+                            if (!temp.wall && !temp.visited) {
+                                if (!(i == -1 && j == 1) && !(i == 1 && j == -1)) {
+                                    if (temp.g > current.g + 10) {
+                                        if (temp.i > end.i) {
+                                            if (temp.j > end.j) {
+                                                temp.h = (temp.i - end.i) + (temp.j - end.j);
+                                            } else {
+                                                temp.h = (temp.i - end.i) + (end.j - temp.j);
+                                            }
+                                        } else {
+                                            if (temp.j > end.j) {
+                                                temp.h = (end.i - temp.i) + (temp.j - end.j);
+                                            } else {
+                                                temp.h = (end.i - temp.i) + (end.j - temp.j);
+                                            }
+                                        }
+                                        temp.g = current.g + 10;
+                                        if (current != start) {
+                                            //current.insidecolor = 'purple';
+                                        }
+                                        temp.draw();
+                                        temp.parent = current;
+                                        temp.visited = true;
+                                        queue.push(temp);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                sortqueue(queue);
+                current.visited = true;
+                if (!done) {
+                    if (queue.length > 0) {
+                        current = queue.shift();
+                    } else {
+                        done = true;
+                        noPath = true;
+                    }
+                }
+                if (current.i == end.i && current.j == end.j) {
+                    done = true;
+                }
+            }
+
+            if (!noPath) {
+                path[0] = current;
+                p = 1;
+            }
+            current = current.parent;
+            while (current != start && current != null && !noPath) {
+                path[p] = current;
+                p++;
+                //current.insidecolor = 'white';
+                current.draw();
+                current = current.parent;
+            }
+        }
+
+        // MAIN FUNCTION
+        function game() {
+
+            // CLEARING CANVAS
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // CHECKING IF THE SNAKE SHOULD RECALCULATE THE PATH
+            if (p == 0) {
+                pathfinding(snake[0], food);
+                if (p == 0) {
+                    //location.reload();
+                }
+            }
+
+
+            // REDRAWING CANVAS
+            pause.draw();
+            clearwall.draw();
+
+            for (i = 0; i < rownmbr; i++) {
+                for (j = 0; j < colnmbr; j++) {
+                    grid[i][j].draw();
+                }
+            }
+
+            // CHECKING IF THE GAME IS PAUSED, IF NOT THE SNAKE WILL MOVE
+            if (pause.insidecolor == 'white') {
+
+                snake[0].oldi = snake[0].i;
+                snake[0].oldj = snake[0].j;
+                if (p > 0) {
+                    snake[0].i = path[p - 1].i;
+                    snake[0].j = path[p - 1].j;
+                    p--;
+                }
+                grid[snake[0].i][snake[0].j].insidecolor = 'black';
+                snake[0].x = grid[snake[0].i][snake[0].j].x;
+                snake[0].y = grid[snake[0].i][snake[0].j].y;
+            }
+
+
+            // CHECKING IF THE SNAKE GOT TO THE FOOD SO WE CAN REPLACE IT AND ADD A TAIL TO THE SNAKE
+            if ((snake[0].i == food.i && snake[0].j == food.j) || (snake[1].i == food.i && snake[1].j == food.j)) {
+                snake[tails] = new Square(grid[snake[tails - 1].oldi][snake[tails - 1].oldj].x, grid[snake[tails - 1].oldi][snake[tails - 1].oldj].y, width, height, 'black', 'lime', false, snake[tails - 1].oldi, snake[tails - 1].oldj);
+                tails++;
+                placeFood();
+                food.i = foodi;
+                food.j = foodj;
+                food.x = grid[food.i][food.j].x;
+                food.y = grid[food.i][food.j].y;
+            }
+
+
+
+            // MOVING THE TAIL OF THE SNAKE
+            for (var k = 1; k < tails; k++) {
+                snake[k].oldi = snake[k].i;
+                snake[k].oldj = snake[k].j;
+                if (snake[k - 1].oldi != snake[k - 1].i || snake[k - 1].oldj != snake[k - 1].j) {
+                    snake[k].i = snake[k - 1].oldi;
+                    snake[k].j = snake[k - 1].oldj;
+                }
+                snake[k].x = grid[snake[k].i][snake[k].j].x;
+                snake[k].y = grid[snake[k].i][snake[k].j].y;
+
+                snake[k].draw();
+            }
+
+            // DRAWING THE HEAD OF THE SNAKE
+            snake[0].draw();
+
+
+            //DRAWING THE FOOD
+            food.draw();
+
+            // CHECKING IF THE CLEARWALL BUTTON WAS PRESSED, IF YES CLEAR ALL WALLS
+            if (clearwall.insidecolor == 'blue') {
+                for (var i = 0; i < rownmbr; i++) {
+                    for (var j = 0; j < colnmbr; j++) {
+                        if (grid[i][j].insidecolor == 'grey') {
+                            grid[i][j].insidecolor = 'black';
+                            grid[i][j].wall = false;
+                        }
+                    }
+                }
+                p = 0;
+                clearwall.insidecolor = 'cyan';
+            }
+
+
+
+
+        }
+
+
+        // FUNCTION TO DETECT CLICKS AND WHAT HAPPENS
+        document.onclick = function () {
+            var bod = canvas.getBoundingClientRect();
+            var mousex = event.clientX - bod.left;
+            var mousey = event.clientY - bod.top;
+            console.log("x: " + mousex + " y: " + mousey);
+
+
+            // SQUARES IN THE GRID CLICKED
+            for (i = 0; i < rownmbr; i++) {
+                for (j = 0; j < colnmbr; j++) {
+                    if (grid[i][j].clicked(mousex, mousey)) {
+                        if (grid[i][j].insidecolor != 'grey') {
+                            p = 0;
+                            grid[i][j].insidecolor = 'grey';
+                            grid[i][j].wall = true;
+                            for (var k = 0; k < tails; k++) {
+                                if (snake[k].i == grid[i][j].i && snake[k].j == grid[i][j].j) {
+                                    grid[i][j].insidecolor = 'black';
+                                }
+                            }
+                            if (food.i == grid[i][j].i && food.j == grid[i][j].j) {
+                                grid[i][j].insidecolor = 'black';
+                                grid[i][j].wall = false;
+                            }
+                        } else {
+                            grid[i][j].insidecolor = 'black';
+                            grid[i][j].wall = false;
+                            p = 0;
+                        }
+                    }
+                }
+            }
+
+            // CHECKING IF PAUSE BUTTON WAS CLICKED
+            if (pause.clicked(mousex, mousey)) {
+                if (pause.insidecolor == 'white') {
+                    pause.insidecolor = 'yellow';
+                } else {
+                    pause.insidecolor = 'white';
+                }
+            } else if (clearwall.clicked(mousex, mousey)) { // CHECKING IF CLEARWALL BUTTON WAS CLICKED
+                if (clearwall.insidecolor == 'cyan') {
+                    clearwall.insidecolor = 'blue';
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            display: block;
+        }
+
+        #canvas {
+            background-color: gray;
+            margin-left: 29%;
+        }
+    </style>
+</body>
+
+</html>
